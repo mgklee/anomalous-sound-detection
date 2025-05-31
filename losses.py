@@ -1,22 +1,19 @@
-import math 
-import torch 
-import torch.nn as nn 
+import math
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import Parameter
 
 
 class ASDLoss(nn.Module):
-    def __init__(self, reduction=True):
+    def __init__(self, reduction='mean'):
         super(ASDLoss, self).__init__()
-        if reduction == True:
-            self.ce = nn.CrossEntropyLoss()
-        
-        else:
-            self.ce = nn.CrossEntropyLoss(reduction='none')
+        self.ce = nn.CrossEntropyLoss(reduction=reduction)
 
     def forward(self, logits, labels):
         loss = self.ce(logits, labels)
         return loss
+
 
 # ArcFace is referred to https://github.com/ronghuaiyang/arcface-pytorch/blob/master/models/metrics.py
 class ArcMarginProduct(nn.Module):
@@ -33,20 +30,20 @@ class ArcMarginProduct(nn.Module):
         self.easy_margin = easy_margin
         self.cos_m = math.cos(m)
         self.sin_m = math.sin(m)
-        
+
         # make the function cos(theta+m) monotonic decreasing while theta in [0°,180°]
         self.th = math.cos(math.pi - m)
         self.mm = math.sin(math.pi - m) * m
 
     def forward(self, x, label):
         cosine = F.linear(F.normalize(x), F.normalize(self.weight))
-        
+
         if self.sub > 1:
             cosine = cosine.view(-1, self.out_features, self.sub)
             cosine, _ = torch.max(cosine, dim=2)
         sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
         phi = cosine * self.cos_m - sine * self.sin_m
-        
+
         if self.easy_margin:
             phi = torch.where(cosine > 0, phi, cosine)
         else:

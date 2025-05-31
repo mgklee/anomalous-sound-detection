@@ -1,10 +1,11 @@
 """
-modification made on the basis of link:https://github.com/liuyoude/STgram-MFN
+modification made on the basis of link: https://github.com/liuyoude/STgram-MFN
 """
 import math
 from torch import nn
 import torch
 from losses import ArcMarginProduct
+from model.features import SpecNet
 
 
 class Bottleneck(nn.Module):
@@ -71,6 +72,7 @@ class MobileFaceNet(nn.Module):
         super(MobileFaceNet, self).__init__()
 
         self.conv1 = ConvBlock(3, 64, 3, 2, 1)
+        # self.conv1 = ConvBlock(4, 64, 3, 2, 1)
 
         self.dw_conv1 = ConvBlock(64, 64, 3, 1, 1, dw=True)
 
@@ -81,7 +83,7 @@ class MobileFaceNet(nn.Module):
         self.conv2 = ConvBlock(bottleneck_setting[-1][1], 512, 1, 1, 0)
         # 20(10), 4(2), 8(4)
         self.linear7 = ConvBlock(512, 512, (8, 20), 1, 0, dw=True, linear=True)
-        
+
         self.linear1 = ConvBlock(512, 128, 1, 1, 0, linear=True)
 
         self.fc_out = nn.Linear(128, num_class)
@@ -125,7 +127,7 @@ class TgramNet(nn.Module):
         self.conv_extrctor = nn.Conv1d(1, mel_bins, win_len, hop_len, win_len // 2, bias=False)
         self.conv_encoder = nn.Sequential(
             *[nn.Sequential(
-                # 313(10) , 63(2), 126(4)
+                # 313(10), 63(2), 126(4)
                 nn.LayerNorm(313),
                 nn.LeakyReLU(0.2, inplace=True),
                 nn.Conv1d(mel_bins, mel_bins, 3, 1, 1, bias=False),
@@ -135,7 +137,7 @@ class TgramNet(nn.Module):
         out = self.conv_extrctor(x)
         out = self.conv_encoder(out)
         return out
-    
+
 
 class TASTgramMFN(nn.Module):
     def __init__(self, num_classes, mode,
@@ -146,31 +148,37 @@ class TASTgramMFN(nn.Module):
                  use_arcface=True, m=0.7, s=30, sub=1
                  ):
         super().__init__()
-        
+
         self.arcface = ArcMarginProduct(in_features=c_dim, out_features=num_classes,
                                         m=m, s=s, sub=sub) if use_arcface else use_arcface
         self.tgramnet = TgramNet(mel_bins=c_dim, win_len=win_len, hop_len=hop_len)
+        self.sgramnet = SpecNet(in_channels=1, out_channels=c_dim, channels=c_dim, kernel_size=8)
         self.mobilefacenet = MobileFaceNet(num_class=num_classes,
                                            bottleneck_setting=bottleneck_setting)
         self.mode = mode
-        
+
         if mode not in ['arcface', 'arcmix', 'noisy_arcmix']:
             raise ValueError('Choose one of [arcface, arcmix, noisy_arcmix]')
-        
+
         self.temporal_attention = Temporal_Attention(feature_dim=c_dim)
-        
+
     def get_tgram(self, x_wav):
         return self.tgramnet(x_wav)
 
+    def get_sgram(self, x_wav):
+        return self.sgramnet(x_wav)
+
     def forward(self, x_wav, x_mel, label, train=True):
         x_t = self.tgramnet(x_wav).unsqueeze(1)
-        
+        x_s = self.sgramnet(x_wav).unsqueeze(1)
         x_mel_temp_att = self.temporal_attention(x_mel).unsqueeze(1)
-       
-        x = torch.cat((x_t, x_mel, x_mel_temp_att), dim=1)
-        
+
+        x = torch.cat((x_t, x_s, x_mel), dim=1)
+        # x = torch.cat((x_t, x_mel, x_mel_temp_att), dim=1)
+        # x = torch.cat((x_t, x_s, x_mel, x_mel_temp_att), dim=1)
+
         out, feature = self.mobilefacenet(x)
-        
+
         if self.mode == 'arcmix':
             if train:
                 out = self.arcface(feature, label[0])
@@ -179,33 +187,30 @@ class TASTgramMFN(nn.Module):
             else:
                 out = self.arcface(feature, label)
                 return out, feature
-        
+
         else:
             out = self.arcface(feature, label)
             return out, feature
-        
-        
-class Temporal_Attention(nn.Module):
-  def __init__(self, feature_dim=128):
-    super().__init__()
-    
-    self.feature_dim = feature_dim
-    self.max_pool = nn.AdaptiveMaxPool1d(1)
-    self.avg_pool = nn.AdaptiveAvgPool1d(1)
-    self.sigmoid = nn.Sigmoid()
-    
-  def forward(self, x):
-    # x: (B, 1, 128, 313)
-    x = x.squeeze(1)
-    
-    x = x.transpose(1,2) # (B, 313, 128)
 
-    x1 = self.max_pool(x) # (B, 313, 1)
-    x2 = self.avg_pool(x) # (B, 313, 1)
-    
-    feats = x1 + x2
-    
-    feats = feats.repeat(1, 1, self.feature_dim)
-    
-    refined_feats = self.sigmoid(feats).transpose(1,2) * x.transpose(1,2)
-    return refined_feats
+
+class Temporal_Attention(nn.Module):
+    def __init__(self, feature_dim=128):
+        super().__init__()
+        self.feature_dim = feature_dim
+        self.max_pool = nn.AdaptiveMaxPool1d(1)
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # x: (B, 1, 128, 313)
+        x = x.squeeze(1)
+        x = x.transpose(1,2)    # (B, 313, 128)
+
+        x1 = self.max_pool(x)   # (B, 313, 1)
+        x2 = self.avg_pool(x)   # (B, 313, 1)
+
+        feats = x1 + x2
+        feats = feats.repeat(1, 1, self.feature_dim)
+
+        refined_feats = self.sigmoid(feats).transpose(1,2) * x.transpose(1,2)
+        return refined_feats

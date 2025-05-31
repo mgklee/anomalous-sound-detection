@@ -1,7 +1,7 @@
 alpha: 0.5
-m: 0.7
+m: 0.5
 
-gpu_num: 0
+gpu_num: 2
 epoch: 300
 
 num_classes: 41
@@ -11,6 +11,6 @@ batch_size: 64
 
 lr: 0.0001
 
-save_path: ./check_points/temporal_attention_noisy_arcmix_stack.pth
+save_path: ./checkpoints/model.pth
 
 mode: noisy_arcmix # select one of ['arcface', 'arcmix', 'noisy_arcmix']
