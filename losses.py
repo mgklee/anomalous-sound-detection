@@ -1,8 +1,9 @@
 import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 from torch.nn import Parameter
+import torch.nn.functional as F
 
 
 class ASDLoss(nn.Module):
@@ -17,14 +18,14 @@ class ASDLoss(nn.Module):
 
 # ArcFace is referred to https://github.com/ronghuaiyang/arcface-pytorch/blob/master/models/metrics.py
 class ArcMarginProduct(nn.Module):
-    def __init__(self, in_features=128, out_features=200, s=30.0, m=0.7, sub=1, easy_margin=False):
+    def __init__(self, in_features=128, out_features=200, m=0.7, s=30.0, sub=1, easy_margin=False):
         super(ArcMarginProduct, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.s = s
         self.m = m
+        self.s = s
         self.sub = sub
-        self.weight = Parameter(torch.Tensor(out_features * sub, in_features))
+        self.weight = Parameter(torch.Tensor(out_features*sub, in_features))
         nn.init.xavier_uniform_(self.weight)
 
         self.easy_margin = easy_margin

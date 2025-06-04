@@ -1,11 +1,13 @@
 import random
-import torch
+
 import numpy as np
-from dataloader import train_dataset
+import torch
 from torch.utils.data import DataLoader
-from utils import dataset_split
-from trainer import Trainer
 import yaml
+
+from dataloader import train_dataset
+from trainer import Trainer
+from utils import dataset_split
 
 
 def main():
@@ -29,9 +31,9 @@ def main():
     train_dataloader = DataLoader(train_ds, batch_size=cfg['batch_size'], shuffle=True)
     valid_dataloader = DataLoader(valid_ds, batch_size=cfg['batch_size'])
 
-    trainer = Trainer(device=device, alpha=cfg['alpha'], mode=cfg['mode'],
-                      epochs=cfg['epoch'], class_num=cfg['num_classes'],
-                      m=cfg['m'], lr=cfg['lr'])
+    trainer = Trainer(device=device, alpha=cfg['alpha'], beta=cfg['beta'],
+                      m=cfg['m'], s=cfg['s'], epochs=cfg['epoch'],
+                      class_num=cfg['num_classes'], lr=cfg['lr'])
 
     trainer.train(train_dataloader, valid_dataloader, cfg['save_path'])
 

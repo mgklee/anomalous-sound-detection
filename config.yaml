@@ -1,5 +1,7 @@
 alpha: 0.5
+beta: 0
 m: 0.5
+s: 30
 
 gpu_num: 2
 epoch: 300
@@ -12,5 +14,3 @@ batch_size: 64
 lr: 0.0001
 
 save_path: ./checkpoints/model.pth
-
-mode: noisy_arcmix # select one of ['arcface', 'arcmix', 'noisy_arcmix']

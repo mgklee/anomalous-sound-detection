@@ -17,7 +17,7 @@ def dataset_split(dataset, split_ratio):
 
 
 # Mixup is referred to https://github.com/facebookresearch/mixup-cifar10
-def mixup_data(x_wavs, x_mels, y, device, alpha=0.5):
+def mixup_data(x_wavs, x_mels, id_labels, type_labels, device, alpha=0.5):
     '''Returns mixed inputs, pairs of targets, and lambda'''
     lam = np.random.beta(alpha, alpha) if alpha > 0 else 1
     batch_size = x_mels.size()[0]
@@ -25,13 +25,9 @@ def mixup_data(x_wavs, x_mels, y, device, alpha=0.5):
 
     mixed_x_wavs = lam * x_wavs + (1-lam) * x_wavs[index, :]
     mixed_x_mels = lam * x_mels + (1-lam) * x_mels[index, :]
-    y_a, y_b = y, y[index]
-    return mixed_x_wavs, mixed_x_mels, y_a, y_b, lam
+    y_id, y_type = (id_labels, id_labels[index]), (type_labels, type_labels[index])
+    return mixed_x_wavs, mixed_x_mels, y_id, y_type, lam
 
 
 def noisy_arcmix_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1-lam) * criterion(pred, y_b)
-
-
-def arcmix_criterion(criterion, pred, pred2, y_a, y_b, lam):
-    return lam * criterion(pred, y_a) + (1-lam) * criterion(pred2, y_b)

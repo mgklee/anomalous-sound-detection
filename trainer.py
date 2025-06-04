@@ -1,28 +1,23 @@
 import torch
-from model.net import TASTgramMFN
-from tqdm import tqdm
-from utils import get_accuracy, mixup_data, arcmix_criterion, noisy_arcmix_criterion
-from losses import ASDLoss
 from torch.amp import autocast
+from tqdm import tqdm
+
+from losses import ASDLoss
+from model.net import MSMTgramMFN
+from utils import get_accuracy, mixup_data, noisy_arcmix_criterion
 
 
 class Trainer:
-    def __init__(self, device, mode, m, alpha, epochs=300, class_num=41, lr=1e-4):
+    def __init__(self, device, alpha, beta, m, s, epochs=300, class_num=41, lr=1e-4):
         self.device = device
         self.epochs = epochs
         self.alpha = alpha
-        self.net = TASTgramMFN(num_classes=class_num, mode=mode, use_arcface=True, m=m).to(self.device)
+        self.beta = beta
+        self.net = MSMTgramMFN(num_classes=class_num, use_arcface=True, m=m, s=s).to(self.device)
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=lr)
-
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=epochs, eta_min=0.1*float(lr))
         self.criterion = ASDLoss().to(self.device)
         self.test_criterion = ASDLoss(reduction='none').to(self.device)
-        self.mode = mode
-
-        if mode not in ['arcface', 'arcmix', 'noisy_arcmix']:
-            raise ValueError('Mode should be one of [arcface, arcmix, noisy_arcmix]')
-
-        print(f'{mode} mode has been selected...')
 
     def train(self, train_loader, valid_loader, save_path):
         num_steps = len(train_loader)
@@ -32,27 +27,23 @@ class Trainer:
             sum_loss = 0.
             sum_accuracy = 0.
 
-            for _, (x_wavs, x_mels, labels) in tqdm(enumerate(train_loader), total=num_steps):
+            for x_wavs, x_mels, id_labels, type_labels in tqdm(train_loader, total=num_steps):
                 self.net.train()
 
-                x_wavs, x_mels, labels = x_wavs.to(self.device), x_mels.to(self.device), labels.to(self.device)
+                x_wavs = x_wavs.to(self.device)
+                x_mels = x_mels.to(self.device)
+                id_labels = id_labels.to(self.device)
+                type_labels = type_labels.to(self.device)
 
                 with autocast('cuda'):
-                    if self.mode == 'arcface':
-                        logits, _ = self.net(x_wavs, x_mels, labels)
-                        loss = self.criterion(logits, labels)
+                    mixed_x_wavs, mixed_x_mels, y_id, y_type, lam = mixup_data(x_wavs, x_mels, id_labels, type_labels,
+                                                                               self.device, alpha=self.alpha)
+                    id_logits, type_logits, _ = self.net(mixed_x_wavs, mixed_x_mels, id_labels, type_labels)
+                    id_loss = noisy_arcmix_criterion(self.criterion, id_logits, y_id[0], y_id[1], lam)
+                    type_loss = noisy_arcmix_criterion(self.criterion, type_logits, y_type[0], y_type[1], lam)
+                    loss = self.beta * type_loss + (1 - self.beta) * id_loss
 
-                    elif self.mode == 'noisy_arcmix':
-                        mixed_x_wavs, mixed_x_mels, y_a, y_b, lam = mixup_data(x_wavs, x_mels, labels, self.device, alpha=self.alpha)
-                        logits, _ = self.net(mixed_x_wavs, mixed_x_mels, labels)
-                        loss = noisy_arcmix_criterion(self.criterion, logits, y_a, y_b, lam)
-
-                    elif self.mode == 'arcmix':
-                        mixed_x_wavs, mixed_x_mels, y_a, y_b, lam = mixup_data(x_wavs, x_mels, labels, self.device, alpha=self.alpha)
-                        logits, logits_shuffled, _ = self.net(mixed_x_wavs, mixed_x_mels, [y_a, y_b])
-                        loss = arcmix_criterion(self.criterion, logits, logits_shuffled, y_a, y_b, lam)
-
-                sum_accuracy += get_accuracy(logits, labels)
+                sum_accuracy += get_accuracy(id_logits, id_labels)
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -80,12 +71,18 @@ class Trainer:
         sum_loss = 0.
         sum_accuracy = 0.
 
-        for (x_wavs, x_mels, labels) in valid_loader:
-            x_wavs, x_mels, labels = x_wavs.to(self.device), x_mels.to(self.device), labels.to(self.device)
-            logits, _ = self.net(x_wavs, x_mels, labels, train=False)
-            sum_accuracy += get_accuracy(logits, labels)
-            loss = self.criterion(logits, labels)
+        for (x_wavs, x_mels, id_labels, type_labels) in valid_loader:
+            x_wavs = x_wavs.to(self.device)
+            x_mels = x_mels.to(self.device)
+            id_labels = id_labels.to(self.device)
+            type_labels = type_labels.to(self.device)
+
+            id_logits, type_logits, _ = self.net(x_wavs, x_mels, id_labels, type_labels)
+            id_loss = self.criterion(id_logits, id_labels)
+            type_loss = self.criterion(type_logits, type_labels)
+            loss = self.beta * type_loss + (1 - self.beta) * id_loss
             sum_loss += loss.item()
+            sum_accuracy += get_accuracy(id_logits, id_labels)
 
         avg_loss = sum_loss / num_steps
         avg_accuracy = sum_accuracy / num_steps

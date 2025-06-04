@@ -1,24 +1,31 @@
-import torch
-from dataloader import test_dataset
-from torch.utils.data import DataLoader
 from sklearn import metrics
-from model.net import TASTgramMFN
-from losses import ASDLoss
+import torch
+from torch.utils.data import DataLoader
 import yaml
 
+from dataloader import test_dataset
+from model.net import MSMTgramMFN
+from losses import ASDLoss
 
-def evaluator(net, test_loader, criterion, device):
+
+def evaluator(net, test_loader, criterion, beta, device):
     net.eval()
 
     y_true = []
     y_pred = []
 
     with torch.no_grad():
-        for x_wavs, x_mels, labels, AN_N_labels in test_loader:
-            x_wavs, x_mels, labels, AN_N_labels = x_wavs.to(device), x_mels.to(device), labels.to(device), AN_N_labels.to(device)
+        for x_wavs, x_mels, id_labels, type_labels, AN_N_labels in test_loader:
+            x_wavs = x_wavs.to(device)
+            x_mels = x_mels.to(device)
+            id_labels = id_labels.to(device)
+            type_labels = type_labels.to(device)
+            AN_N_labels = AN_N_labels.to(device)
 
-            logits, _ = net(x_wavs, x_mels, labels, train=False)
-            score = criterion(logits, labels)
+            id_logits, type_logits, _ = net(x_wavs, x_mels, id_labels, type_labels)
+            id_loss = criterion(id_logits, id_labels)
+            type_loss = criterion(type_logits, type_labels)
+            score = beta * type_loss + (1 - beta) * id_loss
 
             y_pred.extend(score.tolist())
             y_true.extend(AN_N_labels.tolist())
@@ -34,10 +41,11 @@ def main():
 
     print(cfg)
 
+    beta = cfg['beta']
     device_num = cfg['gpu_num']
     device = torch.device(f'cuda:{device_num}')
 
-    net = TASTgramMFN(num_classes=cfg['num_classes'], m=cfg['m'], mode=cfg['mode']).to(device)
+    net = MSMTgramMFN(num_classes=cfg['num_classes'], m=cfg['m'], s=cfg['s']).to(device)
     net.load_state_dict(torch.load(cfg['save_path']))
     net.eval()
 
@@ -53,7 +61,7 @@ def main():
         test_ds = test_dataset(root_path, name_list[i], name_list)
         test_dataloader = DataLoader(test_ds, batch_size=1)
 
-        AUC, PAUC = evaluator(net, test_dataloader, criterion, device)
+        AUC, PAUC = evaluator(net, test_dataloader, criterion, beta, device)
         avg_AUC += AUC
         avg_pAUC += PAUC
         print(f"{name_list[i]} - AUC: {AUC:.5f}, pAUC: {PAUC:.5f}")
