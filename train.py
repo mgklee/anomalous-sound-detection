@@ -18,13 +18,12 @@ def main():
     print(cfg)
 
     name_list = ['fan', 'pump', 'slider', 'ToyCar', 'ToyConveyor', 'valve']
-    root_path = '/home/Dataset/DCASE2020_Task2_dataset/dev_data'
 
     device_num = cfg['gpu_num']
     device = torch.device(f'cuda:{device_num}')
 
     print('training dataset loading...')
-    dataset = train_dataset(root_path, name_list)
+    dataset = train_dataset(cfg['root_path'], name_list)
 
     train_ds, valid_ds = dataset_split(dataset, split_ratio=cfg['split_ratio'])
 

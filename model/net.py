@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from losses import ArcMarginProduct
-from model.features import SpecNet, TgramNet, Temporal_Attention
+from model.features import SpecNet, TgramNet, WaveNet, Temporal_Attention
 
 
 class Bottleneck(nn.Module):
@@ -73,8 +73,8 @@ class MobileFaceNet(nn.Module):
                  bottleneck_setting=Mobilefacenet_bottleneck_setting):
         super(MobileFaceNet, self).__init__()
 
-        self.conv1 = ConvBlock(3, 64, 3, 2, 1)
-        # self.conv1 = ConvBlock(4, 64, 3, 2, 1)
+        # self.conv1 = ConvBlock(3, 64, 3, 2, 1)
+        self.conv1 = ConvBlock(4, 64, 3, 2, 1)
 
         self.dw_conv1 = ConvBlock(64, 64, 3, 1, 1, dw=True)
 
@@ -132,8 +132,9 @@ class MSMTgramMFN(nn.Module):
                  ):
         super(MSMTgramMFN, self).__init__()
 
-        self.specnet = SpecNet(in_channels=1, out_channels=c_dim, channels=c_dim, kernel_size=8)
+        self.specnet = SpecNet(in_channels=1, out_channels=c_dim, kernel_size=8)
         self.tgramnet = TgramNet(mel_bins=c_dim, win_len=win_len, hop_len=hop_len)
+        self.wavenet = WaveNet(mel_bins=c_dim, win_len=win_len, hop_len=hop_len)
         self.temporal_attention = Temporal_Attention(feature_dim=c_dim)
 
         self.mobilefacenet = MobileFaceNet(num_class=num_classes,
@@ -152,9 +153,11 @@ class MSMTgramMFN(nn.Module):
     def forward(self, x_wav, x_mel, id_label, type_label=None):
         x_s = self.specnet(x_wav).unsqueeze(1)
         x_t = self.tgramnet(x_wav).unsqueeze(1)
+        x_w = self.wavenet(x_wav).unsqueeze(1)
         # x_mel_temp_att = self.temporal_attention(x_mel).unsqueeze(1)
 
-        x = torch.cat((x_t, x_s, x_mel), dim=1)
+        x = torch.cat((x_t, x_s, x_w, x_mel), dim=1)
+        # x = torch.cat((x_t, x_s, x_w), dim=1)
 
         _, feature = self.mobilefacenet(x)
 

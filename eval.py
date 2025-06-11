@@ -52,13 +52,12 @@ def main():
     criterion = ASDLoss(reduction='none').to(device)
 
     name_list = ['fan', 'pump', 'slider', 'ToyCar', 'ToyConveyor', 'valve']
-    root_path = '/home/Dataset/DCASE2020_Task2_dataset/dev_data'
 
     avg_AUC = 0.
     avg_pAUC = 0.
 
     for i in range(len(name_list)):
-        test_ds = test_dataset(root_path, name_list[i], name_list)
+        test_ds = test_dataset(cfg['root_path'], name_list[i], name_list)
         test_dataloader = DataLoader(test_ds, batch_size=1)
 
         AUC, PAUC = evaluator(net, test_dataloader, criterion, beta, device)
