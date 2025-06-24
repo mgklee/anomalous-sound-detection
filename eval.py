@@ -46,19 +46,18 @@ def main():
     device = torch.device(f'cuda:{device_num}')
 
     net = MSMTgramMFN(num_classes=cfg['num_classes'], m=cfg['m'], s=cfg['s']).to(device)
-    net.load_state_dict(torch.load(cfg['save_path']))
+    net.load_state_dict(torch.load(cfg['save_path'], map_location=device))
     net.eval()
 
     criterion = ASDLoss(reduction='none').to(device)
 
     name_list = ['fan', 'pump', 'slider', 'ToyCar', 'ToyConveyor', 'valve']
-    root_path = '/home/Dataset/DCASE2020_Task2_dataset/dev_data'
 
     avg_AUC = 0.
     avg_pAUC = 0.
 
     for i in range(len(name_list)):
-        test_ds = test_dataset(root_path, name_list[i], name_list)
+        test_ds = test_dataset(cfg['root_path'], name_list[i], name_list)
         test_dataloader = DataLoader(test_ds, batch_size=1)
 
         AUC, PAUC = evaluator(net, test_dataloader, criterion, beta, device)
